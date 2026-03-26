@@ -380,7 +380,8 @@ impl ResultList {
                         ListItem::new(Line::from(spans))
                     } else {
                         let rendered = Self::inject_match_background_ansi(t, offsets);
-                        let mut text = rendered.into_text().unwrap();
+                        let stripped = crate::ig::ansi_utils::strip_osc8_keep_text(&rendered);
+                        let mut text = stripped.as_str().into_text().unwrap();
                         assert_eq!(text.lines.len(), 1);
                         let mut line = text.lines.remove(0);
                         assert_ne!(line.spans.len(), 0);
