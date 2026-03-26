@@ -478,7 +478,11 @@ mod tests {
 
         assert_eq!(
             rendered,
-            format!("abc{}123{}xyz", ResultList::MATCH_BG_ANSI_START, ResultList::MATCH_BG_ANSI_END)
+            format!(
+                "abc{}123{}xyz",
+                ResultList::MATCH_BG_ANSI_START,
+                ResultList::MATCH_BG_ANSI_END
+            )
         );
     }
 }

@@ -132,7 +132,9 @@ mod tests {
     fn searcher_error_is_preserved_in_state() {
         let mut ig = make_ig();
 
-        ig.tx.send(Event::Error("bad regex".into())).expect("send error");
+        ig.tx
+            .send(Event::Error("bad regex".into()))
+            .expect("send error");
         ig.handle_searcher_event();
 
         assert_eq!(ig.last_error(), Some("bad regex"));
@@ -144,7 +146,9 @@ mod tests {
         let mut ig = make_ig();
         let mut result_list = ResultList::default();
 
-        ig.tx.send(Event::Error("bad regex".into())).expect("send error");
+        ig.tx
+            .send(Event::Error("bad regex".into()))
+            .expect("send error");
         ig.handle_searcher_event();
         ig.search(make_search_config(), &mut result_list);
 

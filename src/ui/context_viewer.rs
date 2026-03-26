@@ -300,7 +300,9 @@ impl ContextViewer {
         if let Some(styled_line) = styled_spans.get_mut(match_offset) {
             let line_width = styled_line.width();
             if line_width < width {
-                styled_line.spans.push(Span::raw(" ".repeat(width - line_width)));
+                styled_line
+                    .spans
+                    .push(Span::raw(" ".repeat(width - line_width)));
             }
 
             for span in styled_line.spans.iter_mut() {
@@ -396,7 +398,11 @@ mod tests {
 
         assert_eq!(
             rendered,
-            format!("abc{}123{}xyz", ContextViewer::MATCH_BG_ANSI_START, ContextViewer::MATCH_BG_ANSI_END)
+            format!(
+                "abc{}123{}xyz",
+                ContextViewer::MATCH_BG_ANSI_START,
+                ContextViewer::MATCH_BG_ANSI_END
+            )
         );
     }
 }
