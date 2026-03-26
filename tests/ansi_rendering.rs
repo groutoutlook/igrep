@@ -19,7 +19,7 @@ fn text_background(buffer: &Buffer, needle: &str) -> Option<Color> {
         }
 
         if let Some(index) = row.find(needle) {
-            return Some(buffer.get(index as u16, y).style().bg?);
+            return buffer.get(index as u16, y).style().bg;
         }
     }
 
