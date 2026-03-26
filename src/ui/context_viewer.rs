@@ -306,8 +306,10 @@ impl ContextViewer {
             }
 
             for span in styled_line.spans.iter_mut() {
-                let current_style = span.style;
-                span.borrow_mut().style = current_style.bg(theme.highlight_color());
+                if span.style.bg.is_none() {
+                    let current_style = span.style;
+                    span.borrow_mut().style = current_style.bg(theme.highlight_color());
+                }
             }
         }
 
