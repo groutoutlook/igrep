@@ -27,6 +27,9 @@ pub struct ResultList {
 }
 
 impl ResultList {
+    const MATCH_BG_ANSI_START: &str = "\x1b[48;5;52m";
+    const MATCH_BG_ANSI_END: &str = "\x1b[49m";
+
     pub fn new(preserve_ansi: bool) -> Self {
         Self {
             preserve_ansi,
@@ -285,6 +288,14 @@ impl ResultList {
         }
     }
 
+    pub fn get_selected_match_offsets(&self) -> Option<(u64, Vec<(usize, usize)>)> {
+        let selected = self.state.selected()?;
+        match &self.entries[selected] {
+            EntryType::Match(number, _, offsets) => Some((*number, offsets.clone())),
+            EntryType::Header(_) => None,
+        }
+    }
+
     pub fn get_current_match_index(&self) -> usize {
         match self.state.selected() {
             Some(selected) => {
@@ -319,15 +330,27 @@ impl ResultList {
     }
 
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &dyn Theme) {
+        let selected_index = self.state.selected();
         let files_list: Vec<ListItem> = self
             .iter()
+            .enumerate()
             .map(|e| match e {
-                EntryType::Header(h) => {
+                (index, EntryType::Header(h)) => {
                     let h = h.trim_start_matches("./");
-                    ListItem::new(Span::styled(h, theme.file_path_color()))
+                    let style = if self.preserve_ansi && selected_index == Some(index) {
+                        theme.file_path_color().bg(theme.highlight_color())
+                    } else {
+                        theme.file_path_color()
+                    };
+                    ListItem::new(Span::styled(h, style))
                 }
-                EntryType::Match(n, t, offsets) => {
-                    let line_number = Span::styled(format!(" {n}: "), theme.line_number_color());
+                (index, EntryType::Match(n, t, offsets)) => {
+                    let line_number_style = if self.preserve_ansi && selected_index == Some(index) {
+                        theme.line_number_color().bg(theme.highlight_color())
+                    } else {
+                        theme.line_number_color()
+                    };
+                    let line_number = Span::styled(format!(" {n}: "), line_number_style);
 
                     if !self.preserve_ansi {
                         let mut spans = vec![line_number];
@@ -356,7 +379,8 @@ impl ResultList {
 
                         ListItem::new(Line::from(spans))
                     } else {
-                        let mut text = t.into_text().unwrap();
+                        let rendered = Self::inject_match_background_ansi(t, offsets);
+                        let mut text = rendered.into_text().unwrap();
                         assert_eq!(text.lines.len(), 1);
                         let mut line = text.lines.remove(0);
                         assert_ne!(line.spans.len(), 0);
@@ -374,12 +398,40 @@ impl ResultList {
                     .border_type(BorderType::Rounded),
             )
             .style(theme.background_color())
-            .highlight_style(Style::default().bg(theme.highlight_color()))
+            .highlight_style(if self.preserve_ansi {
+                Style::default()
+            } else {
+                Style::default().bg(theme.highlight_color())
+            })
             .scroll_offset(ScrollOffset::default().top(1).bottom(0));
 
         let mut state = self.state;
         frame.render_stateful_widget(list_widget, area, &mut state);
         self.state = state;
+    }
+
+    fn inject_match_background_ansi(line: &str, offsets: &[(usize, usize)]) -> String {
+        if offsets.is_empty() {
+            return line.to_owned();
+        }
+
+        let mut rendered = String::with_capacity(line.len() + offsets.len() * 10);
+        let mut cursor = 0;
+
+        for &(start, end) in offsets {
+            if start > line.len() || end > line.len() || start >= end || start < cursor {
+                continue;
+            }
+
+            rendered.push_str(&line[cursor..start]);
+            rendered.push_str(Self::MATCH_BG_ANSI_START);
+            rendered.push_str(&line[start..end]);
+            rendered.push_str(Self::MATCH_BG_ANSI_END);
+            cursor = end;
+        }
+
+        rendered.push_str(&line[cursor..]);
+        rendered
     }
 }
 
@@ -418,5 +470,15 @@ mod tests {
         ));
         assert_eq!(list.entries.len(), 5);
         assert_eq!(list.state.selected(), Some(1));
+    }
+
+    #[test]
+    fn injects_background_ansi_around_matches() {
+        let rendered = ResultList::inject_match_background_ansi("abc123xyz", &[(3, 6)]);
+
+        assert_eq!(
+            rendered,
+            format!("abc{}123{}xyz", ResultList::MATCH_BG_ANSI_START, ResultList::MATCH_BG_ANSI_END)
+        );
     }
 }
