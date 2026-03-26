@@ -1,10 +1,12 @@
 use std::{
     borrow::BorrowMut,
     cmp::max,
+    fs::File,
     io::BufRead,
     path::{Path, PathBuf},
 };
 
+use ansi_to_tui::IntoText;
 use clap::ValueEnum;
 use itertools::Itertools;
 use ratatui::{
@@ -34,9 +36,11 @@ pub enum ContextViewerPosition {
 pub struct ContextViewer {
     highlighted_file_path: PathBuf,
     file_highlighted: Vec<Vec<(highlighting::Style, String)>>,
+    file_plain: Vec<String>,
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
     position: ContextViewerPosition,
+    preserve_ansi: bool,
     size: u16,
 }
 
@@ -44,14 +48,18 @@ impl ContextViewer {
     const MIN_SIZE: u16 = 20;
     const MAX_SIZE: u16 = 80;
     const SIZE_CHANGE_DELTA: u16 = 5;
+    const MATCH_BG_ANSI_START: &str = "\x1b[48;5;52m";
+    const MATCH_BG_ANSI_END: &str = "\x1b[49m";
 
-    pub fn new(position: ContextViewerPosition) -> Self {
+    pub fn new(position: ContextViewerPosition, preserve_ansi: bool) -> Self {
         Self {
             highlighted_file_path: Default::default(),
             file_highlighted: Default::default(),
+            file_plain: Default::default(),
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme_set: highlighting::ThemeSet::load_defaults(),
             position,
+            preserve_ansi,
             size: 50,
         }
     }
@@ -89,6 +97,18 @@ impl ContextViewer {
 
         self.highlighted_file_path = file_path.as_ref().into();
         self.file_highlighted.clear();
+        self.file_plain.clear();
+
+        if self.preserve_ansi {
+            let reader = std::io::BufReader::new(
+                File::open(file_path).expect("Failed to open file for preview"),
+            );
+            self.file_plain = reader
+                .lines()
+                .map(|line| line.expect("Not valid UTF-8"))
+                .collect();
+            return;
+        }
 
         let mut highlighter = HighlightFile::new(
             file_path,
@@ -157,12 +177,18 @@ impl ContextViewer {
         if let Some((_, line_number)) = result_list.get_selected_entry() {
             let height = area.height as u64;
             let first_line_index = line_number.saturating_sub(height / 2);
+            let match_offsets = result_list
+                .get_selected_match_offsets()
+                .filter(|(selected_line_number, _)| *selected_line_number == line_number)
+                .map(|(_, offsets)| offsets)
+                .unwrap_or_default();
 
             let paragraph_widget = Paragraph::new(self.get_styled_spans(
                 first_line_index as usize,
                 height as usize,
                 area.width as usize,
                 line_number as usize,
+                &match_offsets,
                 theme,
             ))
             .block(block_widget);
@@ -179,8 +205,20 @@ impl ContextViewer {
         height: usize,
         width: usize,
         match_index: usize,
+        selected_match_offsets: &[(usize, usize)],
         theme: &dyn Theme,
     ) -> Vec<Line<'_>> {
+        if self.preserve_ansi {
+            return self.get_ansi_styled_spans(
+                first_line_index,
+                height,
+                width,
+                match_index,
+                selected_match_offsets,
+                theme,
+            );
+        }
+
         let mut styled_spans = self
             .file_highlighted
             .iter()
@@ -217,6 +255,86 @@ impl ContextViewer {
 
         styled_spans
     }
+
+    fn get_ansi_styled_spans(
+        &self,
+        first_line_index: usize,
+        height: usize,
+        width: usize,
+        match_index: usize,
+        selected_match_offsets: &[(usize, usize)],
+        theme: &dyn Theme,
+    ) -> Vec<Line<'_>> {
+        let mut styled_spans = self
+            .file_plain
+            .iter()
+            .enumerate()
+            .skip(first_line_index.saturating_sub(1))
+            .take(height)
+            .map(|(index, line)| {
+                let rendered_line = if index + 1 == match_index {
+                    Self::inject_match_background_ansi(line, selected_match_offsets)
+                } else {
+                    line.clone()
+                };
+
+                let text = rendered_line.as_str().into_text();
+                let mut parsed_line = match text {
+                    Ok(mut text) if !text.lines.is_empty() => text.lines.remove(0),
+                    _ => Line::from(rendered_line.replace('\t', "    ")),
+                };
+
+                for span in parsed_line.spans.iter_mut() {
+                    span.content = span.content.replace('\t', "    ").into();
+                }
+
+                parsed_line
+            })
+            .collect_vec();
+
+        if styled_spans.is_empty() {
+            return styled_spans;
+        }
+
+        let match_offset = match_index - max(first_line_index, 1);
+        if let Some(styled_line) = styled_spans.get_mut(match_offset) {
+            let line_width = styled_line.width();
+            if line_width < width {
+                styled_line.spans.push(Span::raw(" ".repeat(width - line_width)));
+            }
+
+            for span in styled_line.spans.iter_mut() {
+                let current_style = span.style;
+                span.borrow_mut().style = current_style.bg(theme.highlight_color());
+            }
+        }
+
+        styled_spans
+    }
+
+    fn inject_match_background_ansi(line: &str, offsets: &[(usize, usize)]) -> String {
+        if offsets.is_empty() {
+            return line.to_owned();
+        }
+
+        let mut rendered = String::with_capacity(line.len() + offsets.len() * 10);
+        let mut cursor = 0;
+
+        for &(start, end) in offsets {
+            if start > line.len() || end > line.len() || start >= end || start < cursor {
+                continue;
+            }
+
+            rendered.push_str(&line[cursor..start]);
+            rendered.push_str(Self::MATCH_BG_ANSI_START);
+            rendered.push_str(&line[start..end]);
+            rendered.push_str(Self::MATCH_BG_ANSI_END);
+            cursor = end;
+        }
+
+        rendered.push_str(&line[cursor..]);
+        rendered
+    }
 }
 
 #[cfg(test)]
@@ -228,7 +346,7 @@ mod tests {
     #[test_case(ContextViewerPosition::Vertical => ContextViewerPosition::None)]
     #[test_case(ContextViewerPosition::Horizontal => ContextViewerPosition::Vertical)]
     fn toggle_vertical(initial_position: ContextViewerPosition) -> ContextViewerPosition {
-        let mut context_viewer = ContextViewer::new(initial_position);
+        let mut context_viewer = ContextViewer::new(initial_position, false);
         context_viewer.toggle_vertical();
         context_viewer.position
     }
@@ -237,14 +355,14 @@ mod tests {
     #[test_case(ContextViewerPosition::Vertical => ContextViewerPosition::Horizontal)]
     #[test_case(ContextViewerPosition::Horizontal => ContextViewerPosition::None)]
     fn toggle_horizontal(initial_position: ContextViewerPosition) -> ContextViewerPosition {
-        let mut context_viewer = ContextViewer::new(initial_position);
+        let mut context_viewer = ContextViewer::new(initial_position, false);
         context_viewer.toggle_horizontal();
         context_viewer.position
     }
 
     #[test]
     fn increase_size() {
-        let mut context_viewer = ContextViewer::new(ContextViewerPosition::None);
+        let mut context_viewer = ContextViewer::new(ContextViewerPosition::None, false);
         let default_size = context_viewer.size;
         context_viewer.increase_size();
         assert_eq!(
@@ -259,7 +377,7 @@ mod tests {
 
     #[test]
     fn decrease_size() {
-        let mut context_viewer = ContextViewer::new(ContextViewerPosition::None);
+        let mut context_viewer = ContextViewer::new(ContextViewerPosition::None, false);
         let default_size = context_viewer.size;
         context_viewer.decrease_size();
         assert_eq!(
@@ -270,5 +388,15 @@ mod tests {
         context_viewer.size = ContextViewer::MIN_SIZE;
         context_viewer.decrease_size();
         assert_eq!(context_viewer.size, ContextViewer::MIN_SIZE);
+    }
+
+    #[test]
+    fn injects_background_ansi_around_matches() {
+        let rendered = ContextViewer::inject_match_background_ansi("abc123xyz", &[(3, 6)]);
+
+        assert_eq!(
+            rendered,
+            format!("abc{}123{}xyz", ContextViewer::MATCH_BG_ANSI_START, ContextViewer::MATCH_BG_ANSI_END)
+        );
     }
 }

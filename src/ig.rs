@@ -71,7 +71,7 @@ impl Ig {
             match event {
                 Event::NewEntry(e) => return Some(e),
                 Event::SearchingFinished => self.state = State::Idle,
-                Event::Error => self.state = State::Exit,
+                Event::Error(err) => self.state = State::Error(err),
             }
         }
 
@@ -79,7 +79,7 @@ impl Ig {
     }
 
     pub fn search(&mut self, search_config: SearchConfig, result_list: &mut ResultList) {
-        if self.state == State::Idle {
+        if !self.is_searching() {
             result_list.reset();
             self.state = State::Searching;
             searcher::search(search_config, self.tx.clone());
@@ -112,5 +112,43 @@ impl Ig {
 
     pub fn exit_requested(&self) -> bool {
         self.state == State::Exit
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn make_ig() -> Ig {
+        Ig::new(EditorCommand::Builtin(crate::editor::Editor::default()))
+    }
+
+    fn make_search_config() -> SearchConfig {
+        SearchConfig::from("pattern".into(), vec![PathBuf::from(".")]).expect("valid config")
+    }
+
+    #[test]
+    fn searcher_error_is_preserved_in_state() {
+        let mut ig = make_ig();
+
+        ig.tx.send(Event::Error("bad regex".into())).expect("send error");
+        ig.handle_searcher_event();
+
+        assert_eq!(ig.last_error(), Some("bad regex"));
+        assert!(!ig.exit_requested());
+    }
+
+    #[test]
+    fn search_can_restart_after_error() {
+        let mut ig = make_ig();
+        let mut result_list = ResultList::default();
+
+        ig.tx.send(Event::Error("bad regex".into())).expect("send error");
+        ig.handle_searcher_event();
+        ig.search(make_search_config(), &mut result_list);
+
+        assert!(ig.is_searching());
+        assert_eq!(ig.last_error(), None);
     }
 }
