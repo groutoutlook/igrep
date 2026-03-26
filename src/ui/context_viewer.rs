@@ -278,7 +278,8 @@ impl ContextViewer {
                     line.clone()
                 };
 
-                let text = rendered_line.as_str().into_text();
+                let stripped = crate::ig::ansi_utils::strip_osc8_keep_text(&rendered_line);
+                let text = stripped.as_str().into_text();
                 let mut parsed_line = match text {
                     Ok(mut text) if !text.lines.is_empty() => text.lines.remove(0),
                     _ => Line::from(rendered_line.replace('\t', "    ")),
@@ -298,7 +299,7 @@ impl ContextViewer {
 
         let match_offset = match_index - max(first_line_index, 1);
         if let Some(styled_line) = styled_spans.get_mut(match_offset) {
-            let line_width = styled_line.width();
+            let line_width: usize = styled_line.width();
             if line_width < width {
                 styled_line
                     .spans

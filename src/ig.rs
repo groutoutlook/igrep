@@ -1,3 +1,4 @@
+pub mod ansi_utils;
 pub mod file_entry;
 pub mod grep_match;
 pub mod search_config;
