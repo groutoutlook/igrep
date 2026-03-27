@@ -12,7 +12,7 @@ use std::{path::Path, sync::mpsc};
 pub enum Event {
     NewEntry(FileEntry),
     SearchingFinished,
-    Error(String),
+    Error,
 }
 
 pub fn search(config: SearchConfig, tx: mpsc::Sender<Event>) {
@@ -29,16 +29,9 @@ pub fn search(config: SearchConfig, tx: mpsc::Sender<Event>) {
             .collect::<Vec<_>>();
 
         for searcher in path_searchers {
-            match searcher.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(err)) => {
-                    tx.send(Event::Error(err)).ok();
-                    return;
-                }
-                Err(_) => {
-                    tx.send(Event::Error("Search thread panicked".into())).ok();
-                    return;
-                }
+            if searcher.join().is_err() {
+                tx.send(Event::Error).ok();
+                return;
             }
         }
 
@@ -46,7 +39,7 @@ pub fn search(config: SearchConfig, tx: mpsc::Sender<Event>) {
     });
 }
 
-fn run(path: &Path, config: SearchConfig, tx: mpsc::Sender<Event>) -> Result<(), String> {
+fn run(path: &Path, config: SearchConfig, tx: mpsc::Sender<Event>) {
     let grep_searcher = SearcherBuilder::new()
         .binary_detection(BinaryDetection::quit(b'\x00'))
         .line_terminator(LineTerminator::byte(b'\n'))
@@ -69,7 +62,7 @@ fn run(path: &Path, config: SearchConfig, tx: mpsc::Sender<Event>) -> Result<(),
     }
     let matcher = regex_matcher_builder
         .build(&config.pattern)
-        .map_err(|err| format!("Cannot build regex matcher: {err}"))?;
+        .expect("Cannot build RegexMatcher");
 
     let mut builder = WalkBuilder::new(path);
     let walker = builder
@@ -167,8 +160,6 @@ fn run(path: &Path, config: SearchConfig, tx: mpsc::Sender<Event>) -> Result<(),
             }
         }
     }
-
-    Ok(())
 }
 
 fn compare_metadata<F, T>(lhs: &Path, rhs: &Path, extractor: F, reversed: bool) -> Ordering

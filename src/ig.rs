@@ -72,7 +72,7 @@ impl Ig {
             match event {
                 Event::NewEntry(e) => return Some(e),
                 Event::SearchingFinished => self.state = State::Idle,
-                Event::Error(err) => self.state = State::Error(err),
+                Event::Error => self.state = State::Exit,
             }
         }
 
@@ -80,7 +80,7 @@ impl Ig {
     }
 
     pub fn search(&mut self, search_config: SearchConfig, result_list: &mut ResultList) {
-        if !self.is_searching() {
+        if self.state == State::Idle {
             result_list.reset();
             self.state = State::Searching;
             searcher::search(search_config, self.tx.clone());
@@ -133,9 +133,7 @@ mod tests {
     fn searcher_error_is_preserved_in_state() {
         let mut ig = make_ig();
 
-        ig.tx
-            .send(Event::Error("bad regex".into()))
-            .expect("send error");
+        ig.tx.send(Event::Error).expect("send error");
         ig.handle_searcher_event();
 
         assert_eq!(ig.last_error(), Some("bad regex"));
@@ -147,9 +145,7 @@ mod tests {
         let mut ig = make_ig();
         let mut result_list = ResultList::default();
 
-        ig.tx
-            .send(Event::Error("bad regex".into()))
-            .expect("send error");
+        ig.tx.send(Event::Error).expect("send error");
         ig.handle_searcher_event();
         ig.search(make_search_config(), &mut result_list);
 
