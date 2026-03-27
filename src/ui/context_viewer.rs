@@ -36,7 +36,6 @@ pub enum ContextViewerPosition {
 pub struct ContextViewer {
     highlighted_file_path: PathBuf,
     file_highlighted: Vec<Vec<(highlighting::Style, String)>>,
-    file_plain: Vec<String>,
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
     position: ContextViewerPosition,
@@ -55,7 +54,6 @@ impl ContextViewer {
         Self {
             highlighted_file_path: Default::default(),
             file_highlighted: Default::default(),
-            file_plain: Default::default(),
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme_set: highlighting::ThemeSet::load_defaults(),
             position,
@@ -97,16 +95,8 @@ impl ContextViewer {
 
         self.highlighted_file_path = file_path.as_ref().into();
         self.file_highlighted.clear();
-        self.file_plain.clear();
 
         if self.preserve_ansi {
-            let reader = std::io::BufReader::new(
-                File::open(file_path).expect("Failed to open file for preview"),
-            );
-            self.file_plain = reader
-                .lines()
-                .map(|line| line.expect("Not valid UTF-8"))
-                .collect();
             return;
         }
 
@@ -265,8 +255,15 @@ impl ContextViewer {
         selected_match_offsets: &[(usize, usize)],
         theme: &dyn Theme,
     ) -> Vec<Line<'_>> {
-        let mut styled_spans = self
-            .file_plain
+        let file =
+            File::open(&self.highlighted_file_path).expect("Failed to open file for preview");
+        let reader = std::io::BufReader::new(file);
+        let lines: Vec<String> = reader
+            .lines()
+            .map(|l| l.expect("Not valid UTF-8"))
+            .collect();
+
+        let mut styled_spans = lines
             .iter()
             .enumerate()
             .skip(first_line_index.saturating_sub(1))
