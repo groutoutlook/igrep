@@ -330,26 +330,16 @@ impl ResultList {
     }
 
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &dyn Theme) {
-        let selected_index = self.state.selected();
         let files_list: Vec<ListItem> = self
             .iter()
-            .enumerate()
             .map(|e| match e {
-                (index, EntryType::Header(h)) => {
+                EntryType::Header(h) => {
                     let h = h.trim_start_matches("./");
-                    let style = if self.preserve_ansi && selected_index == Some(index) {
-                        theme.file_path_color().bg(theme.highlight_color())
-                    } else {
-                        theme.file_path_color()
-                    };
+                    let style = theme.file_path_color().bg(theme.highlight_color());
                     ListItem::new(Span::styled(h, style))
                 }
-                (index, EntryType::Match(n, t, offsets)) => {
-                    let line_number_style = if self.preserve_ansi && selected_index == Some(index) {
-                        theme.line_number_color().bg(theme.highlight_color())
-                    } else {
-                        theme.line_number_color()
-                    };
+                EntryType::Match(n, t, offsets) => {
+                    let line_number_style = theme.line_number_color().bg(theme.highlight_color());
                     let line_number = Span::styled(format!(" {n}: "), line_number_style);
 
                     if !self.preserve_ansi {
@@ -399,11 +389,7 @@ impl ResultList {
                     .border_type(BorderType::Rounded),
             )
             .style(theme.background_color())
-            .highlight_style(if self.preserve_ansi {
-                Style::default()
-            } else {
-                Style::default().bg(theme.highlight_color())
-            })
+            .highlight_style(Style::default().bg(theme.highlight_color()))
             .scroll_offset(ScrollOffset::default().top(1).bottom(0));
 
         let mut state = self.state;
