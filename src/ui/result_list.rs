@@ -335,13 +335,10 @@ impl ResultList {
             .map(|e| match e {
                 EntryType::Header(h) => {
                     let h = h.trim_start_matches("./");
-                    let style = theme.file_path_color().bg(theme.highlight_color());
-                    ListItem::new(Span::styled(h, style))
+                    ListItem::new(Span::styled(h, theme.file_path_color()))
                 }
                 EntryType::Match(n, t, offsets) => {
-                    let line_number_style = theme.line_number_color().bg(theme.highlight_color());
-                    let line_number = Span::styled(format!(" {n}: "), line_number_style);
-
+                    let line_number = Span::styled(format!(" {n}: "), theme.line_number_color());
                     if !self.preserve_ansi {
                         let mut spans = vec![line_number];
 
