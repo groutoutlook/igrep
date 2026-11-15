@@ -72,16 +72,12 @@ where
             })
             .ok();
 
-        *self.matches_in_entry = split_by_lines(line_number, text, offsets);
+        self.matches_in_entry
+            .extend(split_by_lines(line_number, text, offsets));
 
         Ok(true)
     }
 }
-
-// TESTS:
-
-// in file2 does searching for 2 empty lines should work?
-// like `rg -U "file\n\nfile"
 
 #[cfg(test)]
 mod tests {
